@@ -17,6 +17,7 @@
            "juxt.site.system-api-test"
            "juxt.site.whoami-test"
            "juxt.site.schema-test"
-           "juxt.site.basic-auth-test"]}]
+           "juxt.site.basic-auth-test"
+           "juxt.site.conditional-test"]}]
 
  :reporter kaocha.report/documentation}
