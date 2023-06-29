@@ -44,7 +44,6 @@
                (ex-info
                 (format "No such operation found in database for %s" (:juxt.site/operation-id init-data))
                 {:operation-id (:juxt.site/operation-id init-data)})))]
-
       (try
         (:juxt.site/operation-result
          (operations/do-operation!
@@ -62,17 +61,17 @@
 
     ;; Go direct! (but only on certain conditions)
     #_(do
-      #_(println "init-data: %s" (pr-str init-data))
-      (throw
-       (ex-info
-        (format "Should not install this without a subject/operation: %s" (get-in init-data [:juxt.site/input :xt/id]))
-        {})))
+        #_(println "init-data: %s" (pr-str init-data))
+        (throw
+         (ex-info
+          (format "Should not install this without a subject/operation: %s" (get-in init-data [:juxt.site/input :xt/id]))
+          {})))
     (do
-        (assert (get-in init-data [:juxt.site/input :xt/id]))
-        (log/infof
-         "Installing id %s"
-         (get-in init-data [:juxt.site/input :xt/id]))
-        (put! xt-node (:juxt.site/input init-data)))))
+      (assert (get-in init-data [:juxt.site/input :xt/id]))
+      (log/infof
+       "Installing id %s"
+       (get-in init-data [:juxt.site/input :xt/id]))
+      (put! xt-node (:juxt.site/input init-data)))))
 
 (defn call-installer
   [xt-node

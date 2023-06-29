@@ -12,6 +12,7 @@
    [juxt.site.http-authentication :as http-authn]
    [juxt.site.openid-connect :as openid-connect]
    [juxt.site.util :refer [make-nonce as-b64-str sha] :as util]
+   [juxt.site.conditional :as conditional]
    [malli.core :as malli]
    [malli.error :as malli.error]
    [ring.util.codec :as codec]
@@ -428,6 +429,34 @@
    {'form-encode codec/form-encode
     'form-decode codec/form-decode}})
 
+(defn generate-etag [ctx]
+  (update ctx :juxt.site/current-representations
+          #(mapv
+            (fn [rep]
+              (let [generator (get-in rep [:juxt.site/etag-generate :juxt.site.sci/program])]
+                (assoc rep :juxt.http/etag
+                       (if generator
+                         ;; Validation here?
+                         (sci/binding [sci/out *out*]
+                           (sci/eval-string
+                            generator
+                            {:namespaces
+                             (merge
+                              {'user {'*resource* (:juxt.site/resource ctx)
+                                      ;; '*tx* (xt/indexing-tx tx-ctx)
+                                      'log (fn [& message]
+                                             (eval `(log/info ~(str/join " " message))))
+                                      'logf (fn [& args]
+                                              (eval `(log/infof ~@args)))}})
+
+                             :classes
+                             {'java.util.Date java.util.Date
+                              'java.time.Instant java.time.Instant
+                              'java.time.Duration java.time.Duration}}))
+                         ;; Should we throw an error? 
+                         nil))))
+            %)))
+
 (defn do-operation-in-tx-fn
   "This function is applied within a transoperation function. It should be fast, but
   at least doesn't have to worry about the database being stale!"
@@ -437,7 +466,12 @@
     resource :juxt.site/resource
     purpose :juxt.site/purpose
     prepare :juxt.site/prepare
+    evaluate-preconditions :juxt.site/evaluate-preconditions
     :as ctx}]
+
+  (when evaluate-preconditions
+    (conditional/evaluate-preconditions! (generate-etag ctx)))
+  
   (let [db (xt/db xt-ctx)
         tx (xt/indexing-tx xt-ctx)
         operation-doc (xt/entity db operation)
@@ -821,14 +855,16 @@
           (merge (ex-data e) (ex-data (.getCause e)))
           e))))))
 
-
 (defn do-operation!
-  [{:juxt.site/keys [xt-node db resource subject operation] :as ctx}]
+  [{:juxt.site/keys [xt-node db resource subject operation evaluate-preconditions] :as ctx}]
   (assert operation)
 
   (assert (:juxt.site/xt-node ctx) "xt-node must be present")
   (assert (:juxt.site/db ctx) "db must be present")
 
+  #_(when evaluate-preconditions
+    (conditional/evaluate-preconditions! (generate-etag ctx)))
+  
   (when-not (map? operation)
     (throw
      (ex-info
@@ -846,6 +882,10 @@
      (ex-info
       "Resource to do-operation expected to be a map, or null"
       {:juxt.site/request-context ctx :resource resource})))
+
+  ;; Etag generator and stuff TODO
+  
+  ;; Evaluate preconditions
 
   ;; Prepare the transaction - this work happens prior to the transaction, one a
   ;; single node, and may be wasted work if the transaction ultimately

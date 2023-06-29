@@ -6,6 +6,9 @@
   :juxt.site/operation-id "https://auth.example.org/_site/operations/create-operation"
   :juxt.site/input
   {:xt/id "{{$id}}"
+   :juxt.site/etag-generate {:juxt.site.sci/program
+                              #juxt.pprint
+                              "\"example\""}
 
    :juxt.site.malli/input-schema
    [:map

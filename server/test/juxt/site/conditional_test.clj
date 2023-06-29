@@ -56,20 +56,6 @@
    RESOURCE_SERVER
    {})
 
-  ;; ... whereas Bob has the SystemReadonly role which doesn't
-  (converge!
-   [{:juxt.site/base-uri "https://data.example.test"
-     :juxt.site/installer-path "/_site/role-assignments/{{username}}-{{rolename}}"
-     :juxt.site/parameters
-     {"username" "bob"
-      "rolename" "SystemReadonly"}}]
-   RESOURCE_SERVER
-   {})
-
-  ;; TODO: Analyse the performance cost of install-resource-groups!
-  ;; Perhaps optimise by only creating the installer graph once and
-  ;; passing it in as a parameter.
-
   (converge!
    ;; TODO: Add these resources to a group
    [{:juxt.site/base-uri "https://auth.example.test" :juxt.site/installer-path "/applications/global-scope-app"}
@@ -112,24 +98,108 @@
                      :ring.request/headers
                      {"content-type" "application/json"
                       "content-length" (str (count payload))
-                      "if-match" "*"}
+                      "if-match" "\"example\""}
                      :ring.request/body (io/input-stream payload)}
             response (*handler* request)]
         response))))
 
-(with-fixtures
-  (*handler* {:ring.request/method :get
-              :juxt.site/uri "https://data.example.test/_site/operations"
-              :ring.request/headers {"if-modified-since" "Wed, 21 Jun 2023 10:43:31 GMT"}}))
-
-#_(with-fixtures
-  (xt/q (xt/db *xt-node*)
-        {:find '[(pull e [*])]
-         :where [['e :xt/id "\"https://auth.example.test/permissions/get-operations\""]]}))
 
 (deftest if-match-test
-  
-  
-  #_(is (= "" (xt/q (xt/db *xt-node*)
-                    {:find ['id]
-                     :where [['id :juxt.site/type "https://meta.juxt.site/types/not-found"]]}))))
+  (let [session-token (login-with-form! "alice" "garden")
+        {access-token "access_token"}
+        (oauth/acquire-access-token!
+         (cond-> {:grant-type "authorization_code"
+                  :authorization-uri "https://auth.example.test/oauth/authorize"
+                  :token-uri "https://auth.example.test/oauth/token"
+                  :session-token session-token
+                  :client (str "https://auth.example.test/applications/global-scope-app")}))]
+    (testing "* wildcard"
+      (oauth/with-bearer-token access-token
+        (let [payload (json/write-value-as-bytes {"xt/id" "https://data.example.test/_site/users/hannah"
+                                                  "fullname" "Hannah"
+                                                  "username" "hannah"})
+              request {:juxt.site/uri "https://data.example.test/_site/users"
+                       :ring.request/method :post
+                       :ring.request/headers
+                       {"content-type" "application/json"
+                        "content-length" (str (count payload))
+                        "if-match" "*"}
+                       :ring.request/body (io/input-stream payload)}
+              response (*handler* request)]
+          (is (= 200 (:ring.response/status response))))))
+    (testing "matching keys"
+      (oauth/with-bearer-token access-token
+        (let [payload (json/write-value-as-bytes {"xt/id" "https://data.example.test/_site/users/hannah"
+                                                  "fullname" "Hannah"
+                                                  "username" "hannah"})
+              request {:juxt.site/uri "https://data.example.test/_site/users"
+                       :ring.request/method :post
+                       :ring.request/headers
+                       {"content-type" "application/json"
+                        "content-length" (str (count payload))
+                        "if-match" "\"example\""}
+                       :ring.request/body (io/input-stream payload)}
+              response (*handler* request)]
+          (is (= 200 (:ring.response/status response))))))
+    #_(testing "mismatched keys"
+      (oauth/with-bearer-token access-token
+        (let [payload (json/write-value-as-bytes {"xt/id" "https://data.example.test/_site/users/hannah"
+                                                  "fullname" "Hannah"
+                                                  "username" "hannah"})
+              request {:juxt.site/uri "https://data.example.test/_site/users"
+                       :ring.request/method :post
+                       :ring.request/headers
+                       {"content-type" "application/json"
+                        "content-length" (str (count payload))
+                        "if-match" "\"invalid\""}
+                       :ring.request/body (io/input-stream payload)}
+              response (*handler* request)]
+          (is (= 500 (:juxt.http/status response))))))))
+
+#_(deftest if-not-match-test
+  (let [session-token (login-with-form! "alice" "garden")
+        {access-token "access_token"}
+        (oauth/acquire-access-token!
+         (cond-> {:grant-type "authorization_code"
+                  :authorization-uri "https://auth.example.test/oauth/authorize"
+                  :token-uri "https://auth.example.test/oauth/token"
+                  :session-token session-token
+                  :client (str "https://auth.example.test/applications/global-scope-app")}))]
+    (testing "* wildcard"
+      (oauth/with-bearer-token access-token
+        (let [request {:juxt.site/uri "https://data.example.test/_site/users"
+                       :ring.request/method :get
+                       :ring.request/headers
+                       {"if-none-match" "*"}}
+              response (*handler* request)]
+          (is (= 500 (:juxt.http/status response))))))
+    (testing "matching keys"
+      (oauth/with-bearer-token access-token
+        (let [payload (json/write-value-as-bytes {"xt/id" "https://data.example.test/_site/users/hannah"
+                                                  "fullname" "Hannah"
+                                                  "username" "hannah"})
+              request {:juxt.site/uri "https://data.example.test/_site/users"
+                       :ring.request/method :post
+                       :ring.request/headers
+                       {"content-type" "application/json"
+                        "content-length" (str (count payload))
+                        "if-none-match" "\"example\""}
+                       :ring.request/body (io/input-stream payload)}
+              response (*handler* request)]
+          (is (= 500 (:juxt.http/status response))))))
+    (testing "mismatched keys"
+      (oauth/with-bearer-token access-token
+        (let [payload (json/write-value-as-bytes {"xt/id" "https://data.example.test/_site/users/hannah"
+                                                  "fullname" "Hannah"
+                                                  "username" "hannah"})
+              request {:juxt.site/uri "https://data.example.test/_site/users"
+                       :ring.request/method :post
+                       :ring.request/headers
+                       {"content-type" "application/json"
+                        "content-length" (str (count payload))
+                        "if-none-match" "\"invalid\""}
+                       :ring.request/body (io/input-stream payload)}
+              response (*handler* request)]
+          (is (= "No weak matches between if-match and current representations"
+                 (:juxt.http/status response))))))))
+

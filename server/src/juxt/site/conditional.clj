@@ -55,35 +55,49 @@
   resource and, when applicable, the representation metadata of the selected
   representation. If the precondition is found to be false, an exception is
   thrown with ex-data containing the proper response."
-  [{:juxt.site/keys [resource] :as req}]
+  [{:juxt.site/keys [resource current-representations] :as req}]
   ;; (All quotes in this function's comments are from Section 3.2, RFC 7232,
   ;; unless otherwise stated).
   (let [header-field (reap/if-none-match (get-in req [:ring.request/headers "if-none-match"]))]
     (cond
       (sequential? header-field)
-      (when-let [rep-etag (some-> (get resource :juxt.http/etag) reap/entity-tag)]
-        ;; "If the field-value is a list of entity-tags, the condition is false
-        ;; if one of the listed tags match the entity-tag of the selected
-        ;; representation."
-        (doseq [etag header-field]
-          ;; "A recipient MUST use the weak comparison function when comparing
-          ;; entity-tags …"
-          (when (rfc7232/weak-compare-match? etag rep-etag)
+      (do
+        (log/debugf "evaluate-none-if-match! sequential? true, header-field: %s" header-field)
+        (let [matches (for [rep current-representations
+                            :let [rep-etag (some-> (get rep :juxt.http/etag) reap/entity-tag)]
+                            etag header-field
+                            ;; "An origin server MUST use the strong comparison function
+                            ;; when comparing entity-tags"
+                            :let [_ (log/debugf "evaluate-none-if-match! - compare %s with %s" etag rep-etag)]
+                            ;; "A recipient MUST use the weak comparison function when comparing
+                            ;; entity-tags …"
+                            :when (rfc7232/weak-compare-match? etag rep-etag)]
+                        etag)]
+          (log/debugf "matches: %d: %s" (count matches) matches)
+          (when (seq matches)
+            ;; TODO: "unless it can be determined that the state-changing
+            ;; request has already succeeded (see Section 3.1)"
             (throw
              (if (#{:get :head} (:ring.request/method req))
                (ex-info
                 "Not modified"
-                {::matching-entity-tag etag
+                {::matching-entity-tag matches
                  :juxt.site/request-context (assoc req :ring.response/status 304)})
                ;; "… or 412 (Precondition Failed) status code for all other
                ;; request methods."
                (ex-info
                 "If-None-Match precondition failed"
-                {::matching-entity-tag etag
+                {::matching-entity-tag matches
                  :juxt.site/request-context (assoc req :ring.response/status 412)}))))))
+      
+        ;; "If the field-value is a list of entity-tags, the condition is false
+        ;; if one of the listed tags match the entity-tag of the selected
+      ;; representation."
 
       ;; "If-None-Match can also be used with a value of '*' …"
-      (and (map? header-field) (::rfc7232/wildcard header-field))
+      (and (map? header-field)
+           (::rfc7232/wildcard header-field)
+           (not (empty? current-representations)))
       ;; "… the condition is false if the origin server has a current
       ;; representation for the target resource."
       (when resource

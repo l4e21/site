@@ -156,7 +156,7 @@
        (installer-seq-pt1 graph user-parameters)
        (reduce
         (fn [{:keys [seen-uri-set] :as acc}
-             {:keys [juxt.site/uri install juxt.site/parameters] :as installer}]
+            {:keys [juxt.site/uri install juxt.site/parameters] :as installer}]
           (if-not (contains? seen-uri-set uri)
             (let [init-data
                   (try
@@ -171,6 +171,7 @@
                          :user-parameters user-parameters
                          :cause cause}
                         cause))))]
+
               (when (nil? init-data)
                 (throw (ex-info "Nil init data" {:juxt.site/uri uri})))
               (-> acc

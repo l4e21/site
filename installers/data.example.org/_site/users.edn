@@ -8,7 +8,6 @@
   {:xt/id "{{$id}}"
 
    :openapi.v3/path "/users"
-   :juxt.site/etag "generate"
 
    :juxt.site/methods
    {:get

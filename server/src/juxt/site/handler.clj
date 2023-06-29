@@ -9,6 +9,7 @@
    [juxt.pick.core :refer [rate-representation]]
    [juxt.pick.ring :refer [decode-maybe]]
    [juxt.reap.alpha.decoders.rfc7230 :as rfc7230.decoders]
+   [juxt.reap.alpha.decoders :as reap]
    [juxt.reap.alpha.encoders :refer [format-http-date]]
    [juxt.reap.alpha.regex :as re]
    [juxt.reap.alpha.rfc7230 :as-alias rfc7230]
@@ -209,9 +210,7 @@
 
   ;; TODO: Is a HEAD cacheable?
 
-  (conditional/evaluate-preconditions! req)
-
-  (let [req (assoc req :ring.response/status 200)
+  (let [req (assoc req :ring.response/status 200 :juxt.site/evaluate-preconditions true)
         operation (:juxt.site/operation req)]
 
     (cond
@@ -344,16 +343,17 @@
          (dissoc :ring.request/body)))))
 
 (defn POST [req]
-  (perform-unsafe-method req))
+  #_(conditional/evaluate-preconditions! req)
+  (perform-unsafe-method (assoc req :juxt.site/evaluate-preconditions true)))
 
 (defn PUT [req]
-  (perform-unsafe-method req))
+  (perform-unsafe-method (assoc req :juxt.site/evaluate-preconditions true)))
 
 (defn PATCH [req]
-  (perform-unsafe-method req))
+  (perform-unsafe-method (assoc req :juxt.site/evaluate-preconditions true)))
 
 (defn DELETE [req]
-  (perform-unsafe-method req))
+  (perform-unsafe-method (assoc req :juxt.site/evaluate-preconditions true)))
 
 (defn OPTIONS [{:juxt.site/keys [allowed-methods] :as req}]
   (-> req
@@ -386,18 +386,39 @@
       (log/debugf "Resource provider: %s" (:juxt.site/resource-provider res))
       (h (assoc req :juxt.site/resource res)))))
 
+(defn generate-etag [req]
+  (let [generator (get-in req [:juxt.site/resource :juxt.site/etag-generate :juxt.site.sci/program])]
+    (if generator
+      ;; Validation here?
+      (sci/binding [sci/out *out*]
+        (sci/eval-string
+         generator
+         {:namespaces
+          (merge
+           {'user {'*resource* (:juxt.site/resource req)
+                   'log (fn [& message]
+                          (eval `(log/info ~(str/join " " message))))
+                   'logf (fn [& args]
+                           (eval `(log/infof ~@args)))}})
+
+          :classes
+          {'java.util.Date java.util.Date
+           'java.time.Instant java.time.Instant
+           'java.time.Duration java.time.Duration}}))
+      nil)))
+
 (defn wrap-find-current-representations
   [h]
   (fn [{:ring.request/keys [method]
-        :as req}]
+       :as req}]
     (if (#{:get :head :put :post :delete :patch} method)
-      (let [cur-reps (seq (conneg/current-representations req))]
+      (let [cur-reps (conneg/current-representations req)]
         (when (and
                (#{:get :head} method)
                (empty? cur-reps)
-                ;; We might have an operation installed for the GET method. This is
-                ;; rare but used for certain cases such as special
-                ;; redirections. In this case, we don't throw a 404, but return
+               ;; We might have an operation installed for the GET method. This is
+               ;; rare but used for certain cases such as special
+               ;; redirections. In this case, we don't throw a 404, but return
                ;; the result of the operation.
                ;; New note: let's not do this, but rather ensure that there is content, even if it's null content, on the redirection resource.
                ;;(empty? (get-in resource [:juxt.site/methods :get :juxt.site/operations]))

@@ -6,6 +6,9 @@
   :juxt.site/operation-id "https://auth.example.org/operations/put-resource"
   :juxt.site/input
   {:xt/id "{{$id}}"
+   :juxt.site/etag-generate {:juxt.site.sci/program
+                             #juxt.pprint
+                             "\"example\""}
    :juxt.site/methods
    {:get {:juxt.site/operation "https://auth.example.org/operations/get-users"}}
    :juxt.site/variant-of "https://data.example.org/_site/users"
